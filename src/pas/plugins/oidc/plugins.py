@@ -267,12 +267,13 @@ class OIDCPlugin(BasePlugin):
         name = userinfo.get("name", "")
         given_name = userinfo.get("given_name", "")
         family_name = userinfo.get("family_name", "")
+
         if email:
             userProps["email"] = email
-        if given_name and family_name:
-            userProps["fullname"] = f"{given_name} {family_name}"
-        elif name and family_name:
-            userProps["fullname"] = f"{name} {family_name}"
+
+        if name:
+            userProps["fullname"] = f"{name}"
+
         # userProps[LAST_UPDATE_USER_PROPERTY_KEY] = time.time()
         if userProps:
             user.setProperties(**userProps)
