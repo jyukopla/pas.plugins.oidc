@@ -1,3 +1,4 @@
+from oic.oic.message import BackChannelLogoutRequest
 from oic.oic.message import EndSessionRequest
 from oic.oic.message import IdToken
 from pas.plugins.oidc import _
@@ -6,9 +7,11 @@ from pas.plugins.oidc import utils
 from pas.plugins.oidc.plugins import OAuth2ConnectionException
 from pas.plugins.oidc.session import Session
 from plone import api
+from plone.keyring.interfaces import IKeyManager
 from Products.Five.browser import BrowserView
 from urllib.parse import quote
 from zExceptions import Unauthorized
+from zope.component import getUtility
 
 
 class RequireLoginView(BrowserView):
@@ -81,14 +84,6 @@ class LogoutView(BrowserView):
         except OAuth2ConnectionException:
             return ""
 
-        # session = Session(
-        #   self.request,
-        #   use_session_data_manager=self.context.getProperty("use_session_data_manager")
-        # )
-        # state is used to keep track of responses to outstanding requests (state).
-        # https://github.com/keycloak/keycloak-documentation/blob/master/securing_apps/topics/oidc/java/logout.adoc
-        # session.set('end_session_state', rndstr())
-
         redirect_uri = utils.url_cleanup(api.portal.get().absolute_url())
 
         if self.context.getProperty("use_deprecated_redirect_uri_for_logout"):
@@ -124,12 +119,10 @@ class CallbackView(BrowserView):
             self.context, qs, client, session
         )
         if self.context.getProperty("use_modified_openid_schema"):
-            IdToken.c_param.update(
-                {
-                    "email_verified": utils.SINGLE_OPTIONAL_BOOLEAN_AS_STRING,
-                    "phone_number_verified": utils.SINGLE_OPTIONAL_BOOLEAN_AS_STRING,
-                }
-            )
+            IdToken.c_param.update({
+                "email_verified": utils.SINGLE_OPTIONAL_BOOLEAN_AS_STRING,
+                "phone_number_verified": utils.SINGLE_OPTIONAL_BOOLEAN_AS_STRING,
+            })
 
         # The response you get back is an instance of an AccessTokenResponse
         # or again possibly an ErrorResponse instance.
@@ -142,4 +135,34 @@ class CallbackView(BrowserView):
             return_url = utils.process_came_from(session, self.request.get("came_from"))
             self.request.response.redirect(return_url)
         else:
+            raise Unauthorized()
+
+
+class BackChannelLogoutView(BrowserView):
+    def __call__(self):
+        if not self.request.method == "POST" or not self.request.get("logout_token"):
+            raise Unauthorized()
+        logout_request = BackChannelLogoutRequest(
+            logout_token=self.request.get("logout_token")
+        )
+        client = self.context.get_oauth2_client()
+        if logout_request.verify(
+            aud=client.client_id, iss=client.issuer, keyjar=client.keyjar
+        ):
+            userid = logout_request.to_dict()["logout_token"]["sub"]
+            session = api.portal.get_tool("acl_users").session
+            if session.per_user_keyring:
+                secret_key = session._getSecretKey(userid)
+                manager = getUtility(IKeyManager)
+                if manager[secret_key]:
+                    manager.clear(ring=secret_key)
+                    manager.rotate(ring=secret_key)
+            else:
+                logger.error(
+                    "For the backchannel logout, the session PAS needs to be "
+                    "configured with 'per user keyring'."
+                )
+            return ""
+        else:
+            logger.error("invalid backchannel logout request")
             raise Unauthorized()

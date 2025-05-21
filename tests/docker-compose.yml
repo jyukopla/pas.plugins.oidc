@@ -1,11 +1,9 @@
-version: "3.9"
-
 services:
   keycloak:
     build:
       context: keycloak
       args:
-        KEYCLOAK_VERSION: 22.0.0
+        KEYCLOAK_VERSION: ${KEYCLOAK_VERSION:-22.0.0}
     command: ['start-dev', '--import-realm']
     depends_on:
       - db
