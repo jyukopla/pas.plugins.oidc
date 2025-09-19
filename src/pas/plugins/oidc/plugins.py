@@ -26,6 +26,7 @@ from zope.event import notify
 from zope.interface import implementer
 from zope.interface import Interface
 
+from datetime import datetime, timezone
 import itertools
 import plone.api as api
 import requests
@@ -363,11 +364,18 @@ class OIDCPlugin(BasePlugin):
             payload = {}
             payload["fullname"] = user.getProperty("fullname")
             token = plugin.create_token(user.getId(), data=payload)
+            decoded_token = plugin._decode_token(token)
+            expires = None
+            if decoded_token and "exp" in decoded_token:
+                expires_datetime = datetime.fromtimestamp(
+                    decoded_token["exp"], tz=timezone.utc
+                )
+                expires = expires_datetime.strftime("%a, %d-%b-%Y %H:%M:%S GMT")
             request = self.REQUEST
             response = request["RESPONSE"]
             # TODO: take care of cookiename and domain options ?
             path = self.getProperty("cookie_path") or "/"
-            response.setCookie("auth_token", token, path=path)
+            response.setCookie("auth_token", token, path=path, expires=expires)
 
     # TODO: memoize (?)
     def get_oauth2_client(self):
